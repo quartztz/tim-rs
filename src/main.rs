@@ -1,6 +1,6 @@
 use axum::{
     extract::ws::{ Message, WebSocket, WebSocketUpgrade },
-    extract::State,
+    extract::{ State, connect_info::ConnectInfo },
     response::IntoResponse, 
     routing::get,
     Router,
@@ -9,6 +9,7 @@ use futures::{
     sink::SinkExt, stream::StreamExt,
 };
 use std::sync::Arc;
+use std::net::SocketAddr; 
 use serde::Deserialize;
 use tokio::sync::RwLock;
 
@@ -27,10 +28,29 @@ impl TimerState {
             last_updated: std::time::Instant::now() 
         }
     }
+
+    fn update(&mut self) -> () { // TODO: better error handling
+        if self.running {
+            let now = std::time::Instant::now();
+            let dt = now.duration_since(self.last_updated).as_secs_f64();
+            self.spent_seconds += dt; 
+            self.last_updated = now;
+        }
+    }
+
+    fn show(&self) -> String {
+        format!("running: {}, spent_seconds: {}, last_updated: {:?}", 
+            self.running, 
+            self.spent_seconds, 
+            self.last_updated)
+    }
 }
 
 async fn handle_socket(mut socket: WebSocket, state: Arc<RwLock<TimerState>>) {
     while let Some(message) = socket.recv().await {
+        // logging
+
+        // handling
         let ret = match message {
             Ok(msg) => msg,
             Err(_) => return
@@ -38,13 +58,20 @@ async fn handle_socket(mut socket: WebSocket, state: Arc<RwLock<TimerState>>) {
         if socket.send(ret).await.is_err() {
             return; 
         }
+        let state_msg = Message::Text(state.read().await.show());
+        if socket.send(state_msg).await.is_err() {
+            return;
+        }
     }
 }
 
 async fn ws_hook(
     ws: WebSocketUpgrade,
-    State(state): State<Arc<RwLock<TimerState>>>
+    State(state): State<Arc<RwLock<TimerState>>>,
+    ConnectInfo(addr): ConnectInfo<SocketAddr>,
 ) -> impl IntoResponse {
+    // logging
+    println!("connection from: {}", addr);
     ws.on_upgrade(|socket| handle_socket(socket, state))
 }
 
@@ -58,7 +85,7 @@ async fn main() {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:3000")
         .await
         .unwrap();
-    axum::serve(listener, app.into_make_service())
+    axum::serve(listener, app.into_make_service_with_connect_info::<SocketAddr>())
         .await
         .unwrap();
 }
