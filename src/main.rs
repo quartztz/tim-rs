@@ -8,6 +8,7 @@ use axum::{
 use futures::{
     sink::SinkExt, stream::StreamExt,
 };
+use serde::{ Serialize, Deserialize };
 use std::sync::Arc;
 use std::net::SocketAddr; 
 use tokio::sync::RwLock;
@@ -52,9 +53,21 @@ impl TimerState {
     }
 }
 
-async fn handle_socket(mut socket: WebSocket, state: Arc<RwLock<TimerState>>) {
-    let (mut sender, mut receiver) = socket.split(); 
+#[derive(Deserialize)]
+enum TimerCommands {
+    Start, 
+    Stop, 
+    Reset, 
+    SetTime { min: u32, sec: u32 },
+}
 
+struct TimerResponse {
+    running: bool, 
+    display: String, 
+    finished: bool,
+}
+
+async fn handle_socket(mut socket: WebSocket, state: Arc<RwLock<TimerState>>) {
     while let Some(message) = socket.recv().await {
         // logging
 
