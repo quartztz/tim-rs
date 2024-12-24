@@ -10,13 +10,12 @@ use futures::{
 };
 use std::sync::Arc;
 use std::net::SocketAddr; 
-use serde::Deserialize;
 use tokio::sync::RwLock;
 
 #[derive(Debug)]
 struct TimerState {
     running: bool, 
-    spent_seconds: f64, 
+    time_left: f64,
     last_updated: std::time::Instant,
 }
 
@@ -24,29 +23,38 @@ impl TimerState {
     fn new() -> TimerState {
         TimerState {
             running: false, 
-            spent_seconds: 0f64,
+            time_left: 0f64,
             last_updated: std::time::Instant::now() 
         }
     }
 
-    fn update(&mut self) -> () { // TODO: better error handling
+    fn update(&mut self) -> bool { // TODO: change bool to enum
         if self.running {
             let now = std::time::Instant::now();
             let dt = now.duration_since(self.last_updated).as_secs_f64();
-            self.spent_seconds += dt; 
+            self.time_left = (self.time_left - dt).max(0.0);
             self.last_updated = now;
-        }
+            
+            if self.time_left == 0.0 {
+                self.running = false; 
+                true
+            } else {
+                false
+            }
+        } else { false }
     }
 
     fn show(&self) -> String {
         format!("running: {}, spent_seconds: {}, last_updated: {:?}", 
             self.running, 
-            self.spent_seconds, 
+            self.time_left, 
             self.last_updated)
     }
 }
 
 async fn handle_socket(mut socket: WebSocket, state: Arc<RwLock<TimerState>>) {
+    let (mut sender, mut receiver) = socket.split(); 
+
     while let Some(message) = socket.recv().await {
         // logging
 
